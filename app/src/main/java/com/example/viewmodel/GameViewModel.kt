@@ -86,15 +86,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Start/Resume timer for a game and display ongoing push notification in the notification panel.
      */
-    fun playGame(game: Game) {
-        GameTimerSessionManager.startGame(getApplication(), game, repository)
+    fun playGame(game: Game, context: android.content.Context = getApplication()) {
+        GameTimerSessionManager.startGame(context, game, repository)
     }
 
     /**
      * Pause the currently running game and dismiss the push notification.
      */
-    fun pauseGame() {
-        GameTimerSessionManager.pauseGame(getApplication(), repository)
+    fun pauseGame(context: android.content.Context = getApplication()) {
+        GameTimerSessionManager.pauseGame(context, repository)
     }
 
     /**
@@ -156,6 +156,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 currentList.add(item)
                 persistReorderedList(currentList)
             }
+        }
+    }
+
+    fun reorderGames(reorderedList: List<Game>) {
+        viewModelScope.launch {
+            persistReorderedList(reorderedList)
         }
     }
 

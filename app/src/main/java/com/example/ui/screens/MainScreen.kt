@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,17 +22,26 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.zIndex
+import com.example.ui.components.rememberDragDropState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.ImportExport
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material3.Button
@@ -84,8 +94,10 @@ import com.example.ui.components.TransferDataDialog
 import com.example.ui.theme.GameDarkBackground
 import com.example.ui.theme.GameDarkSurface
 import com.example.ui.theme.GameDarkSurfaceVariant
+import com.example.notification.TimerNotificationManager
 import com.example.ui.theme.NeonCyan
 import com.example.ui.theme.NeonPurple
+import com.example.ui.theme.NeonRed
 import com.example.ui.theme.RajdhaniFontFamily
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
@@ -129,19 +141,52 @@ fun MainScreen(
     var showTransferDialog by remember { mutableStateOf(false) }
     var exportJsonString by remember { mutableStateOf("") }
     var importSummaryToConfirm by remember { mutableStateOf<BackupSummary?>(null) }
-
-    // Launcher for POST_NOTIFICATIONS permission on Android 13+
     var pendingGameToPlay by remember { mutableStateOf<Game?>(null) }
+
+    // Expanded card selection tracking (smaller cards by default, selected card unfolds into big card)
+    var expandedActiveGameId by remember { mutableStateOf<Long?>(null) }
+    var expandedArchivedGameId by remember { mutableStateOf<Long?>(null) }
+
+    // Direct drag-and-drop reordering state for Active and Archived game lists
+    val activeLazyListState = rememberLazyListState()
+    val activeDragDropState = rememberDragDropState(
+        lazyListState = activeLazyListState,
+        items = activeGames,
+        onReorder = { reordered ->
+            viewModel.reorderGames(reordered)
+        }
+    )
+
+    val archivedLazyListState = rememberLazyListState()
+    val archivedDragDropState = rememberDragDropState(
+        lazyListState = archivedLazyListState,
+        items = archivedGames,
+        onReorder = { reordered ->
+            viewModel.reorderGames(reordered)
+        }
+    )
+
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
-    ) { _ ->
+    ) { isGranted ->
         pendingGameToPlay?.let {
-            viewModel.playGame(it)
+            expandedActiveGameId = it.id
+            viewModel.playGame(it, context)
             pendingGameToPlay = null
         }
     }
 
     fun startPlayingWithNotificationCheck(game: Game) {
+        expandedActiveGameId = game.id
+        val areNotificationsEnabled = androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()
+        if (!areNotificationsEnabled) {
+            Toast.makeText(
+                context,
+                "Please enable notifications for PlayTime in Settings to see the live timer in your notification shade.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val hasPermission = ContextCompat.checkSelfPermission(
                 context,
@@ -154,7 +199,7 @@ fun MainScreen(
                 return
             }
         }
-        viewModel.playGame(game)
+        viewModel.playGame(game, context)
     }
 
     // ActivityResultLauncher for Exporting JSON file
@@ -381,6 +426,45 @@ fun MainScreen(
                         }
                     )
                 }
+
+                // Diagnostic notification banner if notifications are disabled on physical device
+                val areNotifsAllowed = remember(runningGameId) {
+                    TimerNotificationManager.areNotificationsAllowed(context)
+                }
+                if (!areNotifsAllowed) {
+                    Surface(
+                        color = Color(0xFF38151E),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { TimerNotificationManager.openNotificationSettings(context) }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.NotificationsOff,
+                                contentDescription = null,
+                                tint = NeonRed,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Notifications are disabled on this phone",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Tap here to allow notifications so live timers appear in your panel.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                    }
+                }
             }
         },
         floatingActionButton = {
@@ -426,20 +510,63 @@ fun MainScreen(
                         }
                     )
                 } else {
+                    val displayedActiveGames = if (activeDragDropState.isDragging) activeDragDropState.displayedGames else activeGames
                     LazyColumn(
+                        state = activeLazyListState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        itemsIndexed(activeGames, key = { _, game -> game.id }) { _, game ->
+                        items(displayedActiveGames, key = { it.id }) { game ->
                             val isRunning = (game.id == runningGameId)
+                            val isExpanded = (expandedActiveGameId == game.id)
+                            val isBeingDragged = (game.id == activeDragDropState.draggedGameId)
+
+                            val cardModifier = if (isBeingDragged) {
+                                Modifier
+                                    .zIndex(10f)
+                                    .graphicsLayer {
+                                        translationY = activeDragDropState.dragOffsetY
+                                        scaleX = 1.02f
+                                        scaleY = 1.02f
+                                        shadowElevation = 16.dp.toPx()
+                                    }
+                            } else {
+                                Modifier.animateItem()
+                            }
+
+                            val dragHandleModifier = Modifier.pointerInput(game.id) {
+                                detectVerticalDragGestures(
+                                    onDragStart = {
+                                        activeDragDropState.onDragStart(game)
+                                    },
+                                    onDragEnd = {
+                                        activeDragDropState.onDragEnd()
+                                    },
+                                    onDragCancel = {
+                                        activeDragDropState.onDragCancel()
+                                    },
+                                    onVerticalDrag = { change, dragAmount ->
+                                        change.consume()
+                                        activeDragDropState.onDrag(dragAmount)
+                                    }
+                                )
+                            }
+
                             ActiveGameCard(
                                 game = game,
                                 isRunning = isRunning,
                                 elapsedSessionSeconds = if (isRunning) elapsedSessionSeconds else 0L,
+                                isExpanded = isExpanded,
+                                isBeingDragged = isBeingDragged,
+                                modifier = cardModifier,
+                                dragHandleModifier = dragHandleModifier,
+                                onToggleExpand = {
+                                    expandedActiveGameId = if (expandedActiveGameId == game.id) null else game.id
+                                },
                                 onTogglePlayPause = {
                                     if (isRunning) {
-                                        viewModel.pauseGame()
+                                        viewModel.pauseGame(context)
                                     } else {
                                         startPlayingWithNotificationCheck(game)
                                     }
@@ -468,13 +595,15 @@ fun MainScreen(
                         }
                     )
                 } else {
+                    val displayedArchivedGames = if (archivedDragDropState.isDragging) archivedDragDropState.displayedGames else archivedGames
                     LazyColumn(
+                        state = archivedLazyListState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         // Summary Banner for Archive
-                        item {
+                        item(key = "archive_summary_banner") {
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = GameDarkSurfaceVariant,
@@ -521,9 +650,50 @@ fun MainScreen(
                             }
                         }
 
-                        itemsIndexed(archivedGames, key = { _, game -> game.id }) { _, game ->
+                        items(displayedArchivedGames, key = { it.id }) { game ->
+                            val isExpanded = (expandedArchivedGameId == game.id)
+                            val isBeingDragged = (game.id == archivedDragDropState.draggedGameId)
+
+                            val cardModifier = if (isBeingDragged) {
+                                Modifier
+                                    .zIndex(10f)
+                                    .graphicsLayer {
+                                        translationY = archivedDragDropState.dragOffsetY
+                                        scaleX = 1.02f
+                                        scaleY = 1.02f
+                                        shadowElevation = 16.dp.toPx()
+                                    }
+                            } else {
+                                Modifier.animateItem()
+                            }
+
+                            val dragHandleModifier = Modifier.pointerInput(game.id) {
+                                detectVerticalDragGestures(
+                                    onDragStart = {
+                                        archivedDragDropState.onDragStart(game)
+                                    },
+                                    onDragEnd = {
+                                        archivedDragDropState.onDragEnd()
+                                    },
+                                    onDragCancel = {
+                                        archivedDragDropState.onDragCancel()
+                                    },
+                                    onVerticalDrag = { change, dragAmount ->
+                                        change.consume()
+                                        archivedDragDropState.onDrag(dragAmount)
+                                    }
+                                )
+                            }
+
                             ArchivedGameCard(
                                 game = game,
+                                isExpanded = isExpanded,
+                                isBeingDragged = isBeingDragged,
+                                modifier = cardModifier,
+                                dragHandleModifier = dragHandleModifier,
+                                onToggleExpand = {
+                                    expandedArchivedGameId = if (expandedArchivedGameId == game.id) null else game.id
+                                },
                                 onRestore = { gameToRestore = game },
                                 onDelete = { gameToDelete = game },
                                 onOpenEditNotes = { gameToEditNotes = game },

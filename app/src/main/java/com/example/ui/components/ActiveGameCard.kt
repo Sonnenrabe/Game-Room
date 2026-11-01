@@ -1,11 +1,17 @@
 package com.example.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,6 +34,8 @@ import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
@@ -36,6 +44,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Surface
@@ -70,12 +79,16 @@ fun ActiveGameCard(
     game: Game,
     isRunning: Boolean,
     elapsedSessionSeconds: Long,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onOpenAdjustTime: () -> Unit,
     onOpenEditNotes: () -> Unit,
     onOpenArchive: () -> Unit,
     onLongClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isBeingDragged: Boolean = false,
+    dragHandleModifier: Modifier = Modifier
 ) {
     val displayPlaytime = if (isRunning) {
         game.formattedPlaytime(elapsedSessionSeconds)
@@ -85,7 +98,7 @@ fun ActiveGameCard(
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
+        initialValue = 0.35f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(800),
@@ -95,63 +108,141 @@ fun ActiveGameCard(
     )
 
     val borderColor by animateColorAsState(
-        targetValue = if (isRunning) NeonGreen else Color(game.colorHex).copy(alpha = 0.35f),
+        targetValue = when {
+            isBeingDragged -> NeonCyan
+            isRunning -> NeonGreen
+            else -> Color(game.colorHex).copy(alpha = if (isExpanded) 0.5f else 0.25f)
+        },
         label = "borderColor"
     )
 
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .animateContentSize()
             .border(
-                width = if (isRunning) 2.dp else 1.dp,
+                width = if (isBeingDragged || isRunning) 2.dp else 1.dp,
                 color = borderColor,
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(14.dp)
             )
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(14.dp))
             .combinedClickable(
-                onClick = { /* normal click */ },
+                onClick = onToggleExpand,
                 onLongClick = onLongClick
             )
             .testTag("game_card_${game.id}"),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isRunning) GameDarkSurfaceHighlight else GameDarkSurface
+            containerColor = when {
+                isBeingDragged -> Color(0xFF16253B)
+                isRunning -> GameDarkSurfaceHighlight
+                else -> GameDarkSurface
+            }
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isRunning) 6.dp else 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isBeingDragged) 8.dp else if (isRunning || isExpanded) 4.dp else 2.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(if (isExpanded) 16.dp else 12.dp)
         ) {
-            // Header: Title, Accent indicator, Status indicator, and reorder handle
+            // Header Row (Always visible in small card and big card)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
+                // Left: Accent indicator bar/dot & Title (+ subtitle preview if collapsed)
                 Row(
                     modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(12.dp)
-                            .clip(CircleShape)
+                            .width(5.dp)
+                            .height(if (isExpanded) 24.dp else 36.dp)
+                            .clip(RoundedCornerShape(3.dp))
                             .background(Color(game.colorHex))
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = game.title,
-                        style = MaterialTheme.typography.titleLarge,
-                        color = TextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = game.title,
+                            style = if (isExpanded) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (!isExpanded) {
+                            if (isRunning) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .clip(CircleShape)
+                                            .background(NeonGreen)
+                                            .alpha(pulseAlpha)
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Text(
+                                        text = "RUNNING • Tap to open controls",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = NeonGreen,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            } else if (game.notes.isNotBlank()) {
+                                Text(
+                                    text = game.notes,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextTertiary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = "Tap to unfold controls & timer",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextTertiary.copy(alpha = 0.7f),
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+                        }
+                    }
                 }
 
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Right: Playtime badge, Unfold/Fold Chevron & Reorder Handle
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (isRunning) {
+                    // In collapsed card, show a sleek playtime chip on the right
+                    if (!isExpanded) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isRunning) NeonGreen.copy(alpha = 0.15f) else Color(0xFF0A0E17),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isRunning) NeonGreen.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.08f)
+                            )
+                        ) {
+                            Text(
+                                text = displayPlaytime,
+                                fontFamily = RajdhaniFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                color = if (isRunning) NeonGreen else NeonCyan,
+                                modifier = Modifier
+                                    .padding(horizontal = 9.dp, vertical = 5.dp)
+                                    .testTag("playtime_text_${game.id}")
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                    } else if (isRunning) {
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = NeonGreen.copy(alpha = 0.18f),
@@ -167,7 +258,7 @@ fun ActiveGameCard(
                                         .clip(CircleShape)
                                         .background(NeonGreen)
                                         .alpha(pulseAlpha)
-                                )
+                                    )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = "RUNNING",
@@ -181,189 +272,218 @@ fun ActiveGameCard(
                         Spacer(modifier = Modifier.width(8.dp))
                     }
 
-                    // Long press hint icon
-                    Icon(
-                        imageVector = Icons.Default.DragHandle,
-                        contentDescription = "Long press to reorder or put on top",
-                        tint = TextTertiary,
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clickable { onLongClick() }
-                    )
-                }
-            }
-
-            // Freeform Notes Section
-            Spacer(modifier = Modifier.height(10.dp))
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = GameDarkSurfaceVariant.copy(alpha = 0.6f),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onOpenEditNotes() }
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically
+                    // Chevron Arrow for Unfolding / Folding
+                    IconButton(
+                        onClick = onToggleExpand,
+                        modifier = Modifier.size(36.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Description,
-                            contentDescription = null,
-                            tint = if (game.notes.isNotBlank()) NeonCyan else TextTertiary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (game.notes.isNotBlank()) game.notes else "Tap to add notes on this game...",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (game.notes.isNotBlank()) TextSecondary else TextTertiary,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                            imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = if (isExpanded) "Fold into small card" else "Unfold into big card",
+                            tint = if (isExpanded) NeonCyan else TextSecondary,
+                            modifier = Modifier.size(24.dp)
                         )
                     }
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Edit notes",
-                        tint = TextTertiary,
-                        modifier = Modifier.size(14.dp)
-                    )
+
+                    // Drag Handle: Touch & drag to reorder card position in list
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .then(dragHandleModifier)
+                            .testTag("drag_handle_${game.id}"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DragHandle,
+                            contentDescription = "Grab to change position in list",
+                            tint = if (isBeingDragged) NeonCyan else TextTertiary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Massive Digital Timer Display (HH:MM:SS)
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF0A0E17),
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    if (isRunning) NeonGreen.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.06f)
-                ),
-                modifier = Modifier.fillMaxWidth()
+            // Expanded Section: Only shown when unfolded into a big card!
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = if (isRunning) "SESSION IN PROGRESS" else "TOTAL PLAYTIME",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isRunning) NeonGreen else TextTertiary,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
-                        )
-                        Text(
-                            text = displayPlaytime,
-                            fontFamily = RajdhaniFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 36.sp,
-                            color = if (isRunning) NeonGreen else NeonCyan,
-                            modifier = Modifier.testTag("playtime_text_${game.id}")
-                        )
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Freeform Notes Section
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = GameDarkSurfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenEditNotes() }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Description,
+                                    contentDescription = null,
+                                    tint = if (game.notes.isNotBlank()) NeonCyan else TextTertiary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (game.notes.isNotBlank()) game.notes else "Tap to add notes on this game...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (game.notes.isNotBlank()) TextSecondary else TextTertiary,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Edit notes",
+                                tint = TextTertiary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
                     }
 
-                    if (isRunning) {
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = "THIS SESSION",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TextTertiary,
-                                letterSpacing = 0.8.sp
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Massive Digital Timer Display (HH:MM:SS)
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF0A0E17),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (isRunning) NeonGreen.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.06f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = if (isRunning) "SESSION IN PROGRESS" else "TOTAL PLAYTIME",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isRunning) NeonGreen else TextTertiary,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.sp
+                                )
+                                Text(
+                                    text = displayPlaytime,
+                                    fontFamily = RajdhaniFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 36.sp,
+                                    color = if (isRunning) NeonGreen else NeonCyan,
+                                    modifier = Modifier.testTag("playtime_text_${game.id}")
+                                )
+                            }
+
+                            if (isRunning) {
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = "THIS SESSION",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = TextTertiary,
+                                        letterSpacing = 0.8.sp
+                                    )
+                                    val sessionH = elapsedSessionSeconds / 3600
+                                    val sessionM = (elapsedSessionSeconds % 3600) / 60
+                                    val sessionS = elapsedSessionSeconds % 60
+                                    val sessionFormatted = String.format("+%02d:%02d:%02d", sessionH, sessionM, sessionS)
+                                    Text(
+                                        text = sessionFormatted,
+                                        fontFamily = RajdhaniFontFamily,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 18.sp,
+                                        color = NeonGreen
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Action Buttons Row: Play/Pause, Adjust Time, Archive
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Primary Play / Pause Button
+                        Button(
+                            onClick = onTogglePlayPause,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isRunning) NeonAmber else NeonCyan,
+                                contentColor = Color(0xFF0A0E17)
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("play_pause_button_${game.id}")
+                        ) {
+                            Icon(
+                                imageVector = if (isRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isRunning) "Pause Timer" else "Start Timer",
+                                modifier = Modifier.size(22.dp)
                             )
-                            val sessionH = elapsedSessionSeconds / 3600
-                            val sessionM = (elapsedSessionSeconds % 3600) / 60
-                            val sessionS = elapsedSessionSeconds % 60
-                            val sessionFormatted = String.format("+%02d:%02d:%02d", sessionH, sessionM, sessionS)
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = sessionFormatted,
+                                text = if (isRunning) "PAUSE" else "PLAY",
                                 fontFamily = RajdhaniFontFamily,
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Bold,
                                 fontSize = 18.sp,
-                                color = NeonGreen
+                                letterSpacing = 1.sp
+                            )
+                        }
+
+                        // Adjust Time Button
+                        OutlinedIconButton(
+                            onClick = onOpenAdjustTime,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("adjust_time_button_${game.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Schedule,
+                                contentDescription = "Adjust Playtime Manually",
+                                tint = NeonCyan
+                            )
+                        }
+
+                        // Archive Game Button
+                        OutlinedIconButton(
+                            onClick = onOpenArchive,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("archive_game_button_${game.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Archive,
+                                contentDescription = "Finish and Archive Game",
+                                tint = TextSecondary
                             )
                         }
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Action Buttons Row: Play/Pause, Adjust Time, Notes, Archive
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Primary Play / Pause Button
-                Button(
-                    onClick = onTogglePlayPause,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isRunning) NeonAmber else NeonCyan,
-                        contentColor = Color(0xFF0A0E17)
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(48.dp)
-                        .testTag("play_pause_button_${game.id}")
-                ) {
-                    Icon(
-                        imageVector = if (isRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isRunning) "Pause Timer" else "Start Timer",
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (isRunning) "PAUSE" else "PLAY",
-                        fontFamily = RajdhaniFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
-                        letterSpacing = 1.sp
-                    )
-                }
-
-                // Adjust Time Button
-                OutlinedIconButton(
-                    onClick = onOpenAdjustTime,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .size(48.dp)
-                        .testTag("adjust_time_button_${game.id}")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Schedule,
-                        contentDescription = "Adjust Playtime Manually",
-                        tint = NeonCyan
-                    )
-                }
-
-                // Archive Game Button
-                OutlinedIconButton(
-                    onClick = onOpenArchive,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .size(48.dp)
-                        .testTag("archive_game_button_${game.id}")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Archive,
-                        contentDescription = "Finish and Archive Game",
-                        tint = TextSecondary
-                    )
-                }
-            }
         }
     }
 }
+

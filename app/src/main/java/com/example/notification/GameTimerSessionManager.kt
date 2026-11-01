@@ -30,7 +30,6 @@ object GameTimerSessionManager {
     private var sessionStartRealtime: Long = 0L
     private var tickerJob: Job? = null
 
-    // Callback so ViewModel can trigger DB commit or notify UI
     var onPauseListener: (() -> Unit)? = null
 
     fun startGame(context: Context, game: Game, repository: GameRepository) {
@@ -44,7 +43,7 @@ object GameTimerSessionManager {
         sessionStartRealtime = SystemClock.elapsedRealtime()
         _elapsedSessionSeconds.value = 0L
 
-        // Show push notification in the phone's notification panel
+        // Show ongoing push notification in the phone's notification panel
         TimerNotificationManager.showTimerNotification(context, game, sessionStartRealtime)
 
         tickerJob?.cancel()
@@ -83,9 +82,6 @@ object GameTimerSessionManager {
         onPauseListener?.invoke()
     }
 
-    /**
-     * Pause invoked from outside (e.g., BroadcastReceiver from notification)
-     */
     fun pauseFromBroadcast(context: Context) {
         val runningId = _runningGameId.value ?: return
         tickerJob?.cancel()
