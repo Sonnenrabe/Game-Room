@@ -1,6 +1,9 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,7 +24,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -64,6 +67,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.Game
 import com.example.ui.components.ActiveGameCard
@@ -74,6 +78,7 @@ import com.example.ui.components.DeleteConfirmationDialog
 import com.example.ui.components.EditNotesDialog
 import com.example.ui.components.ImportConfirmationDialog
 import com.example.ui.components.ManualAdjustTimeDialog
+import com.example.ui.components.ReorderGameDialog
 import com.example.ui.components.RestoreConfirmationDialog
 import com.example.ui.components.TransferDataDialog
 import com.example.ui.theme.GameDarkBackground
@@ -118,11 +123,39 @@ fun MainScreen(
     var gameToRestore by remember { mutableStateOf<Game?>(null) }
     var gameToDelete by remember { mutableStateOf<Game?>(null) }
     var gameToEditNotes by remember { mutableStateOf<Game?>(null) }
+    var gameToReorder by remember { mutableStateOf<Game?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
     var showSearchBar by remember { mutableStateOf(false) }
     var showTransferDialog by remember { mutableStateOf(false) }
     var exportJsonString by remember { mutableStateOf("") }
     var importSummaryToConfirm by remember { mutableStateOf<BackupSummary?>(null) }
+
+    // Launcher for POST_NOTIFICATIONS permission on Android 13+
+    var pendingGameToPlay by remember { mutableStateOf<Game?>(null) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        pendingGameToPlay?.let {
+            viewModel.playGame(it)
+            pendingGameToPlay = null
+        }
+    }
+
+    fun startPlayingWithNotificationCheck(game: Game) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val hasPermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (!hasPermission) {
+                pendingGameToPlay = game
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                return
+            }
+        }
+        viewModel.playGame(game)
+    }
 
     // ActivityResultLauncher for Exporting JSON file
     val saveFileLauncher = rememberLauncherForActivityResult(
@@ -398,16 +431,23 @@ fun MainScreen(
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        items(activeGames, key = { it.id }) { game ->
+                        itemsIndexed(activeGames, key = { _, game -> game.id }) { _, game ->
                             val isRunning = (game.id == runningGameId)
                             ActiveGameCard(
                                 game = game,
                                 isRunning = isRunning,
                                 elapsedSessionSeconds = if (isRunning) elapsedSessionSeconds else 0L,
-                                onTogglePlayPause = { viewModel.togglePlayPause(game) },
+                                onTogglePlayPause = {
+                                    if (isRunning) {
+                                        viewModel.pauseGame()
+                                    } else {
+                                        startPlayingWithNotificationCheck(game)
+                                    }
+                                },
                                 onOpenAdjustTime = { gameToAdjust = game },
                                 onOpenEditNotes = { gameToEditNotes = game },
-                                onOpenArchive = { gameToArchive = game }
+                                onOpenArchive = { gameToArchive = game },
+                                onLongClick = { gameToReorder = game }
                             )
                         }
                     }
@@ -481,17 +521,48 @@ fun MainScreen(
                             }
                         }
 
-                        items(archivedGames, key = { it.id }) { game ->
+                        itemsIndexed(archivedGames, key = { _, game -> game.id }) { _, game ->
                             ArchivedGameCard(
                                 game = game,
                                 onRestore = { gameToRestore = game },
                                 onDelete = { gameToDelete = game },
-                                onOpenEditNotes = { gameToEditNotes = game }
+                                onOpenEditNotes = { gameToEditNotes = game },
+                                onLongClick = { gameToReorder = game }
                             )
                         }
                     }
                 }
             }
+        }
+    }
+
+    // Reorder Dialog (Triggered on long-pressing any game)
+    gameToReorder?.let { game ->
+        val currentList = if (game.isArchived) allArchivedGames else allActiveGames
+        val currentIndex = currentList.indexOfFirst { it.id == game.id }
+        if (currentIndex != -1) {
+            ReorderGameDialog(
+                game = game,
+                currentIndex = currentIndex,
+                totalGames = currentList.size,
+                onMoveToTop = {
+                    viewModel.moveGameToTop(game)
+                    gameToReorder = null
+                    Toast.makeText(context, "\"${game.title}\" moved to top!", Toast.LENGTH_SHORT).show()
+                },
+                onMoveUp = {
+                    viewModel.moveGameUp(game)
+                },
+                onMoveDown = {
+                    viewModel.moveGameDown(game)
+                },
+                onMoveToBottom = {
+                    viewModel.moveGameToBottom(game)
+                },
+                onDismiss = { gameToReorder = null }
+            )
+        } else {
+            gameToReorder = null
         }
     }
 

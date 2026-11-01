@@ -1,8 +1,10 @@
 package com.example.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.Button
@@ -51,12 +54,14 @@ import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.TextTertiary
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ArchivedGameCard(
     game: Game,
     onRestore: () -> Unit,
     onDelete: () -> Unit,
     onOpenEditNotes: () -> Unit,
+    onLongClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -66,6 +71,11 @@ fun ArchivedGameCard(
                 width = 1.dp,
                 color = Color(game.colorHex).copy(alpha = 0.25f),
                 shape = RoundedCornerShape(16.dp)
+            )
+            .clip(RoundedCornerShape(16.dp))
+            .combinedClickable(
+                onClick = { /* normal click */ },
+                onLongClick = onLongClick
             )
             .testTag("archived_game_card_${game.id}"),
         shape = RoundedCornerShape(16.dp),
@@ -103,30 +113,41 @@ fun ArchivedGameCard(
                     )
                 }
 
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = NeonGreen.copy(alpha = 0.15f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, NeonGreen.copy(alpha = 0.4f))
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = NeonGreen.copy(alpha = 0.15f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, NeonGreen.copy(alpha = 0.4f))
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = NeonGreen,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "ARCHIVED",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = NeonGreen,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = NeonGreen,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "ARCHIVED",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeonGreen,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
                     }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Icon(
+                        imageVector = Icons.Default.DragHandle,
+                        contentDescription = "Long press to reorder",
+                        tint = TextTertiary,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clickable { onLongClick() }
+                    )
                 }
             }
 

@@ -28,11 +28,13 @@ class ExampleRobolectricTest {
         val game = Game(
             title = "Test Game",
             totalPlaytimeSeconds = 3665L,
-            notes = "Completed chapter 1"
+            notes = "Completed chapter 1",
+            sortOrder = 0
         )
         assertEquals("01:01:05", game.formattedPlaytime())
         assertEquals("01:01:15", game.formattedPlaytime(10L))
         assertEquals("Completed chapter 1", game.notes)
+        assertEquals(0, game.sortOrder)
     }
 
     @Test
@@ -42,7 +44,7 @@ class ExampleRobolectricTest {
 
         val sampleJson = """
             {
-              "version": 1,
+              "version": 2,
               "app": "PlayTime",
               "exportedAt": 1730000000000,
               "games": [
@@ -52,7 +54,8 @@ class ExampleRobolectricTest {
                   "isArchived": false,
                   "colorHex": -16717825,
                   "createdAt": 1730000000000,
-                  "notes": "Finished Chapter 7 Summit"
+                  "notes": "Finished Chapter 7 Summit",
+                  "sortOrder": 0
                 },
                 {
                   "title": "Portal",
@@ -60,7 +63,8 @@ class ExampleRobolectricTest {
                   "isArchived": true,
                   "colorHex": -8127393,
                   "createdAt": 1730000000000,
-                  "notes": "100% completed"
+                  "notes": "100% completed",
+                  "sortOrder": 1
                 }
               ]
             }
@@ -74,5 +78,7 @@ class ExampleRobolectricTest {
         assertEquals(1, summary.archivedCount)
         assertEquals("Celeste", summary.games[0].title)
         assertEquals("Finished Chapter 7 Summit", summary.games[0].notes)
+        assertEquals(0, summary.games[0].sortOrder)
+        assertEquals(1, summary.games[1].sortOrder)
     }
 }

@@ -6,9 +6,11 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -33,7 +36,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Surface
@@ -62,6 +64,7 @@ import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.TextTertiary
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ActiveGameCard(
     game: Game,
@@ -71,6 +74,7 @@ fun ActiveGameCard(
     onOpenAdjustTime: () -> Unit,
     onOpenEditNotes: () -> Unit,
     onOpenArchive: () -> Unit,
+    onLongClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val displayPlaytime = if (isRunning) {
@@ -103,6 +107,11 @@ fun ActiveGameCard(
                 color = borderColor,
                 shape = RoundedCornerShape(16.dp)
             )
+            .clip(RoundedCornerShape(16.dp))
+            .combinedClickable(
+                onClick = { /* normal click */ },
+                onLongClick = onLongClick
+            )
             .testTag("game_card_${game.id}"),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
@@ -115,7 +124,7 @@ fun ActiveGameCard(
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            // Header: Title and Status indicator
+            // Header: Title, Accent indicator, Status indicator, and reorder handle
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -141,33 +150,46 @@ fun ActiveGameCard(
                     )
                 }
 
-                if (isRunning) {
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = NeonGreen.copy(alpha = 0.18f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, NeonGreen.copy(alpha = 0.6f))
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isRunning) {
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = NeonGreen.copy(alpha = 0.18f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, NeonGreen.copy(alpha = 0.6f))
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(NeonGreen)
-                                    .alpha(pulseAlpha)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "RUNNING",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = NeonGreen,
-                                fontWeight = FontWeight.ExtraBold,
-                                letterSpacing = 0.8.sp
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(NeonGreen)
+                                        .alpha(pulseAlpha)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "RUNNING",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NeonGreen,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 0.8.sp
+                                )
+                            }
                         }
+                        Spacer(modifier = Modifier.width(8.dp))
                     }
+
+                    // Long press hint icon
+                    Icon(
+                        imageVector = Icons.Default.DragHandle,
+                        contentDescription = "Long press to reorder or put on top",
+                        tint = TextTertiary,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clickable { onLongClick() }
+                    )
                 }
             }
 

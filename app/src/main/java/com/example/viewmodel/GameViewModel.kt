@@ -1,21 +1,18 @@
 package com.example.viewmodel
 
 import android.app.Application
-import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.Game
 import com.example.data.GameDatabase
 import com.example.data.GameRepository
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
+import com.example.notification.GameTimerSessionManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -44,15 +41,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _selectedTab.value = index
     }
 
-    // Running Timer State
-    private val _runningGameId = MutableStateFlow<Long?>(null)
-    val runningGameId: StateFlow<Long?> = _runningGameId.asStateFlow()
-
-    private val _elapsedSessionSeconds = MutableStateFlow(0L)
-    val elapsedSessionSeconds: StateFlow<Long> = _elapsedSessionSeconds.asStateFlow()
-
-    private var sessionStartRealtime: Long = 0L
-    private var timerJob: Job? = null
+    // Running Timer State synced with GameTimerSessionManager & Ongoing Push Notification
+    val runningGameId: StateFlow<Long?> = GameTimerSessionManager.runningGameId
+    val elapsedSessionSeconds: StateFlow<Long> = GameTimerSessionManager.elapsedSessionSeconds
 
     // Search
     private val _searchQuery = MutableStateFlow("")
@@ -69,7 +60,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val allArchivedGames: StateFlow<List<Game>> = repository.archivedGames
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Filtered lists (search by title or notes)
+    // Filtered lists
     val filteredActiveGames: StateFlow<List<Game>> = combine(
         allActiveGames,
         searchQuery
@@ -93,66 +84,86 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Start/Resume timer for a game.
+     * Start/Resume timer for a game and display ongoing push notification in the notification panel.
      */
     fun playGame(game: Game) {
-        viewModelScope.launch {
-            val currentRunningId = _runningGameId.value
-            if (currentRunningId != null && currentRunningId != game.id) {
-                commitRunningSession()
-            }
-
-            _runningGameId.value = game.id
-            sessionStartRealtime = SystemClock.elapsedRealtime()
-            _elapsedSessionSeconds.value = 0L
-
-            timerJob?.cancel()
-            timerJob = launch {
-                while (isActive) {
-                    delay(500)
-                    val elapsedMillis = SystemClock.elapsedRealtime() - sessionStartRealtime
-                    _elapsedSessionSeconds.value = elapsedMillis / 1000
-                }
-            }
-        }
+        GameTimerSessionManager.startGame(getApplication(), game, repository)
     }
 
     /**
-     * Pause the currently running game.
+     * Pause the currently running game and dismiss the push notification.
      */
     fun pauseGame() {
-        viewModelScope.launch {
-            commitRunningSession()
-        }
+        GameTimerSessionManager.pauseGame(getApplication(), repository)
     }
 
     /**
      * Toggle play/pause for a given game.
      */
     fun togglePlayPause(game: Game) {
-        if (_runningGameId.value == game.id) {
+        if (runningGameId.value == game.id) {
             pauseGame()
         } else {
             playGame(game)
         }
     }
 
-    private suspend fun commitRunningSession() {
-        val runningId = _runningGameId.value ?: return
-        timerJob?.cancel()
-        timerJob = null
-
-        val elapsedMillis = SystemClock.elapsedRealtime() - sessionStartRealtime
-        val sessionSeconds = (elapsedMillis / 1000).coerceAtLeast(0L)
-
-        val game = repository.getGameByIdDirect(runningId)
-        if (game != null && sessionSeconds > 0) {
-            val updatedTotal = game.totalPlaytimeSeconds + sessionSeconds
-            repository.updatePlaytime(runningId, updatedTotal)
+    /**
+     * Reordering methods for changing game order (e.g. on long press)
+     */
+    fun moveGameToTop(game: Game) {
+        viewModelScope.launch {
+            val currentList = (if (game.isArchived) allArchivedGames.value else allActiveGames.value).toMutableList()
+            val currentIndex = currentList.indexOfFirst { it.id == game.id }
+            if (currentIndex > 0) {
+                currentList.removeAt(currentIndex)
+                currentList.add(0, game)
+                persistReorderedList(currentList)
+            }
         }
+    }
 
-        _runningGameId.value = null
-        _elapsedSessionSeconds.value = 0L
+    fun moveGameUp(game: Game) {
+        viewModelScope.launch {
+            val currentList = (if (game.isArchived) allArchivedGames.value else allActiveGames.value).toMutableList()
+            val currentIndex = currentList.indexOfFirst { it.id == game.id }
+            if (currentIndex > 0) {
+                val item = currentList.removeAt(currentIndex)
+                currentList.add(currentIndex - 1, item)
+                persistReorderedList(currentList)
+            }
+        }
+    }
+
+    fun moveGameDown(game: Game) {
+        viewModelScope.launch {
+            val currentList = (if (game.isArchived) allArchivedGames.value else allActiveGames.value).toMutableList()
+            val currentIndex = currentList.indexOfFirst { it.id == game.id }
+            if (currentIndex in 0 until currentList.size - 1) {
+                val item = currentList.removeAt(currentIndex)
+                currentList.add(currentIndex + 1, item)
+                persistReorderedList(currentList)
+            }
+        }
+    }
+
+    fun moveGameToBottom(game: Game) {
+        viewModelScope.launch {
+            val currentList = (if (game.isArchived) allArchivedGames.value else allActiveGames.value).toMutableList()
+            val currentIndex = currentList.indexOfFirst { it.id == game.id }
+            if (currentIndex in 0 until currentList.size - 1) {
+                val item = currentList.removeAt(currentIndex)
+                currentList.add(item)
+                persistReorderedList(currentList)
+            }
+        }
+    }
+
+    private suspend fun persistReorderedList(list: List<Game>) {
+        val updatedGames = list.mapIndexed { index, game ->
+            game.copy(sortOrder = index)
+        }
+        repository.updateAll(updatedGames)
     }
 
     /**
@@ -160,8 +171,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun adjustPlaytime(gameId: Long, newTotalSeconds: Long) {
         viewModelScope.launch {
-            if (_runningGameId.value == gameId) {
-                commitRunningSession()
+            if (runningGameId.value == gameId) {
+                pauseGame()
             }
             repository.updatePlaytime(gameId, newTotalSeconds.coerceAtLeast(0L))
         }
@@ -181,8 +192,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun archiveGame(gameId: Long) {
         viewModelScope.launch {
-            if (_runningGameId.value == gameId) {
-                commitRunningSession()
+            if (runningGameId.value == gameId) {
+                pauseGame()
             }
             repository.setArchivedStatus(gameId, true)
         }
@@ -202,10 +213,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun deleteGame(gameId: Long) {
         viewModelScope.launch {
-            if (_runningGameId.value == gameId) {
-                timerJob?.cancel()
-                _runningGameId.value = null
-                _elapsedSessionSeconds.value = 0L
+            if (runningGameId.value == gameId) {
+                pauseGame()
             }
             repository.deleteGameById(gameId)
         }
@@ -224,6 +233,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             val totalSeconds = (initialHours * 3600L) + (initialMinutes * 60L) + initialSeconds
+            val currentList = allActiveGames.value
+            val maxSortOrder = currentList.maxOfOrNull { it.sortOrder } ?: -1
             val newGame = Game(
                 title = title.trim(),
                 platform = "",
@@ -233,7 +244,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 colorHex = colorHex,
                 createdAt = System.currentTimeMillis(),
                 lastPlayedAt = null,
-                notes = notes.trim()
+                notes = notes.trim(),
+                sortOrder = maxSortOrder + 1
             )
             repository.insertGame(newGame)
         }
@@ -243,14 +255,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      * Export all games to a JSON formatted string.
      */
     suspend fun exportDataAsJson(): String {
-        // Commit any currently running session first
-        if (_runningGameId.value != null) {
-            commitRunningSession()
+        if (runningGameId.value != null) {
+            pauseGame()
         }
 
         val allGames = repository.getAllGamesDirect()
         val root = JSONObject()
-        root.put("version", 1)
+        root.put("version", 2)
         root.put("app", "PlayTime")
         root.put("exportedAt", System.currentTimeMillis())
 
@@ -266,6 +277,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 obj.put("lastPlayedAt", game.lastPlayedAt)
             }
             obj.put("notes", game.notes)
+            obj.put("sortOrder", game.sortOrder)
             gamesArray.put(obj)
         }
         root.put("games", gamesArray)
@@ -292,11 +304,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 val createdAt = obj.optLong("createdAt", System.currentTimeMillis())
                 val lastPlayedAt = if (obj.has("lastPlayedAt")) obj.optLong("lastPlayedAt") else null
                 val notes = obj.optString("notes", "")
+                val sortOrder = obj.optInt("sortOrder", i)
 
                 totalSec += totalPlaytime
                 gamesList.add(
                     Game(
-                        id = 0, // Auto-generate new IDs on import
+                        id = 0,
                         title = title,
                         platform = "",
                         genre = "",
@@ -305,7 +318,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         colorHex = colorHex,
                         createdAt = createdAt,
                         lastPlayedAt = lastPlayedAt,
-                        notes = notes
+                        notes = notes,
+                        sortOrder = sortOrder
                     )
                 )
             }
@@ -336,16 +350,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun importGames(games: List<Game>, replaceExisting: Boolean, onComplete: (Int) -> Unit) {
         viewModelScope.launch {
-            if (_runningGameId.value != null) {
-                commitRunningSession()
+            if (runningGameId.value != null) {
+                pauseGame()
             }
             repository.importGames(games, replaceExisting)
             onComplete(games.size)
         }
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        timerJob?.cancel()
     }
 }

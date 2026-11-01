@@ -18,6 +18,8 @@ class GameRepository(private val gameDao: GameDao) {
 
     suspend fun updateGame(game: Game) = gameDao.updateGame(game)
 
+    suspend fun updateAll(games: List<Game>) = gameDao.updateAll(games)
+
     suspend fun deleteGame(game: Game) = gameDao.deleteGame(game)
 
     suspend fun deleteGameById(id: Long) = gameDao.deleteGameById(id)
@@ -34,6 +36,10 @@ class GameRepository(private val gameDao: GameDao) {
 
     suspend fun updateNotes(id: Long, notes: String) {
         gameDao.updateNotes(id, notes)
+    }
+
+    suspend fun updateSortOrder(id: Long, sortOrder: Int) {
+        gameDao.updateSortOrder(id, sortOrder)
     }
 
     suspend fun importGames(games: List<Game>, replaceExisting: Boolean) {

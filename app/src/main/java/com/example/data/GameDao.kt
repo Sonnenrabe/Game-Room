@@ -10,13 +10,13 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface GameDao {
-    @Query("SELECT * FROM games WHERE isArchived = 0 ORDER BY lastPlayedAt DESC, id DESC")
+    @Query("SELECT * FROM games WHERE isArchived = 0 ORDER BY sortOrder ASC, id DESC")
     fun getActiveGames(): Flow<List<Game>>
 
-    @Query("SELECT * FROM games WHERE isArchived = 1 ORDER BY lastPlayedAt DESC, id DESC")
+    @Query("SELECT * FROM games WHERE isArchived = 1 ORDER BY sortOrder ASC, id DESC")
     fun getArchivedGames(): Flow<List<Game>>
 
-    @Query("SELECT * FROM games ORDER BY id ASC")
+    @Query("SELECT * FROM games ORDER BY sortOrder ASC, id DESC")
     suspend fun getAllGamesDirect(): List<Game>
 
     @Query("SELECT * FROM games WHERE id = :id")
@@ -37,6 +37,9 @@ interface GameDao {
     @Update
     suspend fun updateGame(game: Game)
 
+    @Update
+    suspend fun updateAll(games: List<Game>)
+
     @Delete
     suspend fun deleteGame(game: Game)
 
@@ -54,4 +57,7 @@ interface GameDao {
 
     @Query("UPDATE games SET notes = :notes WHERE id = :id")
     suspend fun updateNotes(id: Long, notes: String)
+
+    @Query("UPDATE games SET sortOrder = :sortOrder WHERE id = :id")
+    suspend fun updateSortOrder(id: Long, sortOrder: Int)
 }

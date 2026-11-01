@@ -15,7 +15,8 @@ data class Game(
     val colorHex: Long = 0xFF00E5FF,
     val createdAt: Long = System.currentTimeMillis(),
     val lastPlayedAt: Long? = null,
-    val notes: String = ""
+    val notes: String = "",
+    val sortOrder: Int = 0
 ) {
     /**
      * Formats total seconds into HH:MM:SS
