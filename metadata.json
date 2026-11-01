@@ -1,0 +1,6 @@
+{
+  "name": "PlayTime",
+  "description": "Track gameplay playtime for games that do not log it automatically, featuring live timers, manual adjustments, and archive management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
